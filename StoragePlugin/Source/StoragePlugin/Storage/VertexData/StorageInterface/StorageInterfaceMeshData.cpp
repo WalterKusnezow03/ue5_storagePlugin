@@ -10,83 +10,6 @@
 
 //-------- SAVING --------
 
-void StorageInterfaceMeshData::SaveMeshData(
-    TArray<FVector> &Vertecies,
-    TArray<FVector> &Normals,
-    TArray<FVector2D> &UV0,
-    TArray<int32> &Triangles,
-    FString path
-){
-    //vertex buffer size, und normal buffer size sind gleich, muss codiert werden!
-    //triangle buffer size muss codiert werden!
-
-    TArray<uint8> Bytes;
-
-    int32 vertexCount = Vertecies.Num();
-    int32 normalCount = Normals.Num();
-    int32 uvCount = UV0.Num();
-    int32 triangleCount = Triangles.Num();
-
-    //int32 is 4 bytes
-    //MUST BE THE SAME IN LOADING METHOD!
-    int infoBytesSize = getInfoBytesSize(); 
-    int verteciesByteSize = getVertexBytesSize(Vertecies.Num());
-    int normalsByteSize = getNormalsBytesSize(Normals.Num());
-    int uv0ByteSize = getUVBytesSize(UV0.Num());
-    int trianglesByteSize = getTrianglesBytesSize(Triangles.Num());
-
-    int completeSize =
-        infoBytesSize +
-        verteciesByteSize +
-        normalsByteSize +
-        uv0ByteSize +
-        trianglesByteSize;
-
-    //write info and data size
-    Bytes.SetNumUninitialized(completeSize); //SET SIZE VERY IMPORTANT
-
-    //write info data
-    TArray<int32> infos = {
-        vertexCount,
-        normalCount,
-        uvCount,
-        triangleCount
-    };
-    writeInfoData(Bytes, infos);
-    
-
-    //write mesh data
-    uint8* Ptr = Bytes.GetData(); //get data pointer to work with
-    Ptr += infoBytesSize;         // get to offset adress after info data!
-
-    /*
-    FMemory::Memcpy ( 
-        void* Dest,
-        const void* Src,
-        SIZE_T Count (in bytes if using unit8*)
-    )
-    */
-    FMemory::Memcpy(Ptr, (uint8 *)Vertecies.GetData(), verteciesByteSize); //copy casted data
-    Ptr += verteciesByteSize; //increase pointer adress
-
-    FMemory::Memcpy(Ptr, (uint8 *)Normals.GetData(), normalsByteSize); //copy
-    Ptr += normalsByteSize; //increase pointer adress
-
-    FMemory::Memcpy(Ptr, (uint8 *)UV0.GetData(), uv0ByteSize); //copy
-    Ptr += uv0ByteSize; //increase pointer adress
-
-    FMemory::Memcpy(Ptr, (uint8 *)Triangles.GetData(), trianglesByteSize); //copy
-    //Ptr += trianglesByteSize; //increase pointer adress (not needed, end of data)
-
-
-    // Save
-    SaveBinaryData(
-        path,
-        Bytes
-    );
-}
-
-
 
 void StorageInterfaceMeshData::SaveMeshData(
     TArray<FVector> &Vertecies,
@@ -106,9 +29,141 @@ void StorageInterfaceMeshData::SaveMeshData(
     );
 }
 
+void StorageInterfaceMeshData::SaveMeshData(
+    TArray<FVector> &Vertecies,
+    TArray<FVector> &Normals,
+    TArray<FVector2D> &UV0,
+    TArray<int32> &Triangles,
+    FString path
+){
+    
+    TArray<uint8> Bytes;
+    AppendIntoByteBuffer(Bytes, Vertecies, Normals, UV0, Triangles);
 
-void StorageInterfaceMeshData::writeInfoData(TArray<uint8> &Bytes, TArray<int32> &info){
-    uint8* Ptr = Bytes.GetData();
+    //debug
+    PrintBinary(Bytes);
+
+    // Save
+    SaveBinaryData(
+        path,
+        Bytes
+    );
+}
+
+/// @brief will append the given data into the byte buffer, including the header info!
+/// If writing later to the buffer: Use Ptr = bytes.GetData() + bytes.Num()
+void StorageInterfaceMeshData::AppendIntoByteBuffer(
+    TArray<uint8> &Bytes, //buffer size is increased after append!
+    TArray<FVector> &Vertecies,
+    TArray<FVector> &Normals,
+    TArray<FVector2D> &UV0,
+    TArray<int32> &Triangles
+){
+
+    int32 vertexCount = Vertecies.Num();
+    int32 normalCount = Normals.Num();
+    int32 uvCount = UV0.Num();
+    int32 triangleCount = Triangles.Num();
+
+    if(debugLog){
+        FString message = FString::Printf(
+            TEXT("Storage Interface MeshData write buffer sizes (%d), (%d), (%d), (%d)"),
+            vertexCount, normalCount, uvCount, triangleCount
+        );
+        DebugHelper::logMessage(message);
+    }
+    
+
+    //int32 is 4 bytes
+    //MUST BE THE SAME IN LOADING METHOD!
+    int infoBytesSize = getInfoBytesSize(); 
+    int verteciesByteSize = getVertexBytesSize(Vertecies.Num());
+    int normalsByteSize = getNormalsBytesSize(Normals.Num());
+    int uv0ByteSize = getUVBytesSize(UV0.Num());
+    int trianglesByteSize = getTrianglesBytesSize(Triangles.Num());
+
+    int completeSize =
+        infoBytesSize +
+        verteciesByteSize +
+        normalsByteSize +
+        uv0ByteSize +
+        trianglesByteSize;
+
+    //write info and data size
+    int previousSize = Bytes.Num();
+    Bytes.SetNumUninitialized(previousSize + completeSize); // SET SIZE VERY IMPORTANT, previous data is NOT overriden.
+    
+    //pointer erst nach set num machen, da Array UMKOPIERT WIRD!
+    uint8* Ptr = Bytes.GetData(); //get data pointer to work with (starts at front)
+    Ptr += previousSize;
+
+    //write info data
+    writeInfoData(
+        Vertecies.Num(), 
+        Normals.Num(),
+        UV0.Num(),
+        Triangles.Num(),
+        Ptr
+    ); //at offset of previous bytes!
+    
+
+    // ---- write mesh data ---- 
+    
+    //Ptr += infoBytesSize; // get to offset adress after info data!
+
+    /*
+    FMemory::Memcpy ( 
+        void* Dest,
+        const void* Src,
+        SIZE_T Count (in bytes if using unit8*)
+    )
+    */
+    FMemory::Memcpy(Ptr, (uint8 *)Vertecies.GetData(), verteciesByteSize); //copy casted data
+    Ptr += verteciesByteSize; //increase pointer adress
+
+    FMemory::Memcpy(Ptr, (uint8 *)Normals.GetData(), normalsByteSize); //copy
+    Ptr += normalsByteSize; //increase pointer adress
+
+    FMemory::Memcpy(Ptr, (uint8 *)UV0.GetData(), uv0ByteSize); //copy
+    Ptr += uv0ByteSize; //increase pointer adress
+
+    FMemory::Memcpy(Ptr, (uint8 *)Triangles.GetData(), trianglesByteSize); //copy
+    //Ptr += trianglesByteSize; //increase pointer adress not be needed, end of data!!
+    
+
+
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//immidiate byte offset for data Ptr, is increased!, POINTER MUST BE VALID! MUST BE REFERENCE TO TAKE EFFECT OF +=
+void StorageInterfaceMeshData::writeInfoData(
+    int32 vertexCount,
+    int32 normalCount,
+    int32 uvCount,
+    int32 triangleCount,
+    uint8*& Ptr
+){
+    TArray<int32> info = {
+        vertexCount,
+        normalCount,
+        uvCount,
+        triangleCount
+    };
     for (int i = 0; i < info.Num(); i++){
         int32 *infoCurrent = &info[i];
         /*
@@ -161,7 +216,6 @@ int StorageInterfaceMeshData::getTrianglesBytesSize(int count){
 
 
 
-
 //-------- LOADING --------
 
 void StorageInterfaceMeshData::LoadMeshData(
@@ -199,16 +253,50 @@ void StorageInterfaceMeshData::LoadMeshData(
     */
     TArray<uint8> bytes;
     if(!LoadBinaryData(path, bytes)){
-        DebugHelper::logMessage("Storage Interface ERROR LOADING BIN DATA");
+        DebugHelper::logMessage("Storage Interface mesh data ERROR LOADING BIN DATA");
     }
+    PrintBinary(bytes);
 
+    bool endReachedIgnore = false;
+    uint8 *Ptr = bytes.GetData(); // at 0 offset.
+    LoadIntoMeshBuffers(
+        bytes,
+        Ptr,
+        Vertecies,
+        Normals,
+        UV0,
+        Triangles,
+        endReachedIgnore
+    );
+}
+
+
+void StorageInterfaceMeshData::LoadIntoMeshBuffers(
+    TArray<uint8> &Bytes, //buffer size is increased after append!
+    uint8*& Ptr, //is increased after append, must be at correct offset starting with header bytes!
+    TArray<FVector> &Vertecies,
+    TArray<FVector> &Normals,
+    TArray<FVector2D> &UV0,
+    TArray<int32> &Triangles,
+    bool &endReached
+){
     //load info data
     int32 vertexCount = 0;
     int32 normalCount = 0;
     int32 uvCount = 0;
     int32 triangleCount = 0;
 
-    loadInfoData(bytes, vertexCount, normalCount, uvCount, triangleCount);
+    loadInfoData(Ptr, vertexCount, normalCount, uvCount, triangleCount);
+
+    //debug
+    if(debugLog){
+        FString message = FString::Printf(
+            TEXT("Storage Interface MeshData loaded buffer sizes (%d), (%d), (%d), (%d)"),
+            vertexCount, normalCount, uvCount, triangleCount
+        );
+        DebugHelper::logMessage(message);
+    }
+    
 
     //SET SIZE VERY IMPORTANT
     Vertecies.SetNumUninitialized(vertexCount);
@@ -222,7 +310,7 @@ void StorageInterfaceMeshData::LoadMeshData(
 
     int verteciesByteSize = getVertexBytesSize(vertexCount);
     int normalsBytesSize = getNormalsBytesSize(normalCount);
-    int uvBytes = getUVBytesSize(uvCount);
+    int uvBytesSize = getUVBytesSize(uvCount);
     int trianglesByteSize = getTrianglesBytesSize(triangleCount);
 
     //verify size
@@ -230,15 +318,20 @@ void StorageInterfaceMeshData::LoadMeshData(
         infoBytesSize +
         verteciesByteSize +
         normalsBytesSize +
-        uvBytes +
+        uvBytesSize +
         trianglesByteSize;
 
-    if(totalSize != sizeof(uint8) * bytes.Num()){
+    //if bytes exceeded, mesh data is broken.
+    //if(totalSize != sizeof(uint8) * Bytes.Num()){
+    if(totalSize > sizeof(uint8) * Bytes.Num()){ //check if reaching out of bounds with Pointer.
+        DebugHelper::logMessage("Storage Interface MeshData Exceeded byte size");
+        endReached = true;
         return;
     }
+    if(totalSize == sizeof(uint8) * Bytes.Num()){
+        endReached = true;
+    }
 
-    uint8 *Ptr = bytes.GetData();
-    Ptr += infoBytesSize;
     /*
     FMemory::Memcpy (
         void* Dest,
@@ -247,6 +340,12 @@ void StorageInterfaceMeshData::LoadMeshData(
     )
     */
 
+    //TODO:
+    //if Data is completly empty, dont even copy.
+
+
+
+
     FMemory::Memcpy((uint8 *)Vertecies.GetData(), Ptr, verteciesByteSize); // copy casted data
     Ptr += verteciesByteSize;                                             // increase pointer adress
 
@@ -254,32 +353,38 @@ void StorageInterfaceMeshData::LoadMeshData(
     FMemory::Memcpy((uint8 *)Normals.GetData(), Ptr, normalsBytesSize); // copy casted data
     Ptr += normalsBytesSize;                                            // increase pointer adress
 
-    FMemory::Memcpy((uint8 *)UV0.GetData(), Ptr, uvBytes); // copy casted data
-    Ptr += uvBytes;                                            // increase pointer adress
+    FMemory::Memcpy((uint8 *)UV0.GetData(), Ptr, uvBytesSize); // copy casted data
+    Ptr += uvBytesSize;                                        // increase pointer adress
 
     FMemory::Memcpy((uint8 *)Triangles.GetData(), Ptr, trianglesByteSize); // copy casted data
+    Ptr += trianglesByteSize; // increase pointer adress (if next data loading needed)
+
+
 
 }
 
 
 
 
+
+
+
+
+
+
 void StorageInterfaceMeshData::loadInfoData(
-    TArray<uint8> &bytes,
+    uint8 *& Ptr, //Ptr already at given offset
     int32 &vertexCount,
     int32 &normalCount,
     int32 &uvCount,
     int32 &triangleCount
 ){
-    uint8 *Ptr = bytes.GetData();
-
     TArray<int32 *> infoData = {
         &vertexCount,
         &normalCount,
         &uvCount,
         &triangleCount
     };
-
 
     /*
     FMemory::Memcpy ( 
@@ -352,11 +457,17 @@ void StorageInterfaceMeshData::Test(){
         0,
         0
     );
+    
 
     vertexBuffer.Empty();
     normalBuffer.Empty();
     uvBuffer.Empty();
     triangleBuffer.Empty();
+
+    //debug
+    if(false){
+        return;
+    }
 
     //load
     LoadMeshData(
@@ -368,6 +479,8 @@ void StorageInterfaceMeshData::Test(){
         0,
         0
     );
+
+    //CAUTION: EMPTY
 
     //print
     PrintBuffers(vertexBuffer, normalBuffer, uvBuffer, triangleBuffer);
@@ -415,8 +528,14 @@ void StorageInterfaceMeshData::PrintBuffers(
 }
 
 
+void StorageInterfaceMeshData::PrintBinary(TArray<uint8>&bytes){
+    FString byteString = TEXT("Storage Interface Meshdata bin: ");
+    for (int i = 0; i < bytes.Num(); i++){
+        byteString += FString::FromInt((int32)bytes[i]);
+    }
 
-
+    DebugHelper::logMessage(byteString);
+}
 
 /// ----- nachschlage werk -------
 /*
